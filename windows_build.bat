@@ -1,0 +1,1 @@
+dolet main.dlt -o app.exe

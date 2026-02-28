@@ -1,0 +1,427 @@
+# ============================================================================
+# DOPM - Dolet Package Manager
+# Written in Pure Dolet!
+# ============================================================================
+
+# External bindings
+extern lib "msvcrt":
+    fun system(command: str) -> i32
+    fun fopen(filename: str, mode: str) -> i64
+    fun fclose(file: i64) -> i32
+    fun fgets(buf: i64, size: i32, file: i64) -> i64
+    fun feof(file: i64) -> i32
+
+extern lib "kernel32":
+    fun GetFileAttributesA(lpFileName: str) -> i32
+    fun GetCommandLineA() -> i64
+    fun GetModuleFileNameA(hModule: i64, lpFilename: i64, nSize: i32) -> i32
+
+# Get the directory where dopm.exe is located
+fun get_exe_dir() -> str:
+    buf: i64 = Memory.malloc(512)
+    len: i32 = GetModuleFileNameA(0, buf, 511)
+    
+    # Find last backslash to get directory
+    last_slash: i64 = -1
+    i: i64 = 0
+    while i < len as i64:
+        ch: i8 = Memory.read_i8(buf + i)
+        if ch == 92:  # backslash
+            last_slash = i
+        i = i + 1
+    
+    if last_slash > 0:
+        Memory.write_i8(buf + last_slash, 0)
+    
+    return buf as str
+
+# ============================================================================
+# Helper functions
+# ============================================================================
+fun path_exists(path: str) -> bool:
+    attrs: i32 = GetFileAttributesA(path)
+    return attrs != -1
+
+fun trim_spaces(s: str) -> str:
+    start: i64 = s as i64
+    len: i64 = Memory.strlen(s)
+    
+    # Skip leading spaces
+    while len > 0:
+        ch: i8 = Memory.read_i8(start)
+        if ch != 32 and ch != 9:
+            break
+        start = start + 1
+        len = len - 1
+    
+    # Find end (skip trailing spaces and newlines)
+    end: i64 = start + len - 1
+    while end >= start:
+        ch: i8 = Memory.read_i8(end)
+        if ch != 32 and ch != 9 and ch != 10 and ch != 13:
+            break
+        end = end - 1
+    
+    new_len: i64 = end - start + 1
+    if new_len <= 0:
+        return ""
+    
+    buf: i64 = Memory.malloc(new_len + 1)
+    Memory.copy(buf, start, new_len)
+    Memory.write_i8(buf + new_len, 0)
+    return buf as str
+
+fun get_repo_for(name: str) -> str:
+    # Try absolute path based on exe location first
+    exe_dir: str = get_exe_dir()
+    pkg_path: str = @"{exe_dir}\\packages.txt"
+    file: i64 = fopen(pkg_path, "r")
+    
+    if file == 0:
+        # Try relative paths as fallback
+        file = fopen("dopm/packages.txt", "r")
+    if file == 0:
+        file = fopen("packages.txt", "r")
+    if file == 0:
+        return ""
+    
+    buf: i64 = Memory.malloc(512)
+    name_len: i64 = Memory.strlen(name)
+    in_modules: bool = false
+    
+    while feof(file) == 0:
+        result: i64 = fgets(buf, 511, file)
+        if result == 0:
+            break
+        
+        line: str = buf as str
+        line_len: i64 = Memory.strlen(line)
+        first_ch: i8 = Memory.read_i8(buf)
+        
+        # Check for section headers
+        if first_ch == 91:  # '['
+            if line_len >= 9:
+                is_modules: bool = true
+                modules_str: str = "[modules]"
+                i: i64 = 0
+                while i < 9:
+                    c1: i8 = Memory.read_i8(buf + i)
+                    c2: i8 = Memory.read_i8((modules_str as i64) + i)
+                    if c1 != c2:
+                        is_modules = false
+                        break
+                    i = i + 1
+                
+                if is_modules:
+                    in_modules = true
+                else:
+                    in_modules = false
+            continue
+        
+        # Skip if not in [modules] section
+        if in_modules == false:
+            continue
+        
+        # Skip comments and empty lines
+        if first_ch == 35 or first_ch == 10 or first_ch == 13:
+            continue
+        
+        # Find the | separator
+        pos: i64 = 0
+        sep_pos: i64 = -1
+        
+        while pos < line_len:
+            ch: i8 = Memory.read_i8(buf + pos)
+            if ch == 124:  # |
+                sep_pos = pos
+                break
+            pos = pos + 1
+        
+        if sep_pos == -1:
+            continue
+        
+        # Extract package name
+        Memory.write_i8(buf + sep_pos, 0)
+        pkg_name: str = trim_spaces(buf as str)
+        
+        # Check if it matches
+        if Memory.strlen(pkg_name) == name_len:
+            is_match: bool = true
+            i: i64 = 0
+            while i < name_len:
+                c1: i8 = Memory.read_i8((pkg_name as i64) + i)
+                c2: i8 = Memory.read_i8((name as i64) + i)
+                if c1 != c2:
+                    is_match = false
+                    break
+                i = i + 1
+            
+            if is_match:
+                # Extract repo URL
+                repo: str = trim_spaces((buf + sep_pos + 1) as str)
+                fclose(file)
+                Memory.free(buf)
+                return repo
+    
+    fclose(file)
+    Memory.free(buf)
+    return ""
+
+# Parse command line and extract argument at index
+# Returns empty string if not found
+fun get_arg(index: i32) -> str:
+    cmdline: i64 = GetCommandLineA()
+    cmdline_str: str = cmdline as str
+    
+    # Skip spaces and find arguments
+    pos: i64 = 0
+    arg_count: i32 = 0
+    arg_start: i64 = 0
+    in_arg: bool = false
+    in_quotes: bool = false
+    
+    len: i64 = Memory.strlen(cmdline_str)
+    
+    while pos < len:
+        ch: i8 = Memory.read_i8(cmdline + pos)
+        
+        if ch == 34:  # Quote "
+            in_quotes = not in_quotes
+        else if ch == 32 and in_quotes == false:  # Space
+            if in_arg:
+                # End of argument
+                if arg_count == index:
+                    # Found our argument, extract it
+                    arg_len: i64 = pos - arg_start
+                    buf: i64 = Memory.malloc(arg_len + 1)
+                    Memory.copy(buf, cmdline + arg_start, arg_len)
+                    Memory.write_i8(buf + arg_len, 0)
+                    return buf as str
+                arg_count = arg_count + 1
+                in_arg = false
+        else:
+            if in_arg == false:
+                arg_start = pos
+                in_arg = true
+        
+        pos = pos + 1
+    
+    # Check last argument
+    if in_arg and arg_count == index:
+        arg_len: i64 = pos - arg_start
+        buf: i64 = Memory.malloc(arg_len + 1)
+        Memory.copy(buf, cmdline + arg_start, arg_len)
+        Memory.write_i8(buf + arg_len, 0)
+        return buf as str
+    
+    return ""
+
+fun str_eq(a: str, b: str) -> bool:
+    len_a: i64 = Memory.strlen(a)
+    len_b: i64 = Memory.strlen(b)
+    if len_a != len_b:
+        return false
+    
+    i: i64 = 0
+    while i < len_a:
+        c1: i8 = Memory.read_i8((a as i64) + i)
+        c2: i8 = Memory.read_i8((b as i64) + i)
+        if c1 != c2:
+            return false
+        i = i + 1
+    return true
+
+# ============================================================================
+# Package Manager
+# ============================================================================
+struct DOPM:
+    
+    fun install(self, pkg_name: str) -> bool:
+        print(@"[INFO] Installing: {pkg_name}")
+        
+        repo: str = get_repo_for(pkg_name)
+        if Memory.strlen(repo) == 0:
+            print("[ERROR] Package not found")
+            print("[INFO] Use 'dopm search' to see available packages")
+            return false
+        
+        # Get bootstrap directory (parent of dopm folder)
+        exe_dir: str = get_exe_dir()
+        target: str = @"{exe_dir}\\..\\tools\\dolet\\lib\\external-modules\\{pkg_name}"
+        
+        if path_exists(target):
+            print("[INFO] Already installed")
+            return true
+        
+        cmd: str = @"git clone {repo} \"{target}\""
+        print(@"[INFO] Running: {cmd}")
+        
+        result: i32 = system(cmd)
+        
+        if result == 0:
+            print("[OK] Installed!")
+        else:
+            print("[ERROR] Failed")
+        
+        return result == 0
+    
+    fun uninstall(self, pkg_name: str) -> bool:
+        print(@"[INFO] Removing: {pkg_name}")
+        
+        exe_dir: str = get_exe_dir()
+        target: str = @"{exe_dir}\\..\\tools\\dolet\\lib\\external-modules\\{pkg_name}"
+        
+        if path_exists(target) == false:
+            print("[ERROR] Not installed")
+            return false
+        
+        cmd: str = @"rmdir /s /q \"{target}\""
+        result: i32 = system(cmd)
+        
+        if result == 0:
+            print("[OK] Removed!")
+        else:
+            print("[ERROR] Failed")
+        
+        return result == 0
+    
+    fun show_list(self):
+        print("")
+        print("Installed packages:")
+        print("--------------------------------------------------")
+        exe_dir: str = get_exe_dir()
+        list_cmd: str = @"dir /b /ad \"{exe_dir}\\..\\tools\\dolet\\lib\\external-modules\""
+        system(list_cmd)
+        print("--------------------------------------------------")
+    
+    fun search(self):
+        print("")
+        print("Available packages:")
+        print("--------------------------------------------------")
+        
+        exe_dir: str = get_exe_dir()
+        pkg_path: str = @"{exe_dir}\\packages.txt"
+        file: i64 = fopen(pkg_path, "r")
+        if file == 0:
+            file = fopen("dopm/packages.txt", "r")
+        if file == 0:
+            file = fopen("packages.txt", "r")
+        if file == 0:
+            print("  (could not read packages.txt)")
+        else:
+            buf: i64 = Memory.malloc(512)
+            in_modules: bool = false
+            
+            while feof(file) == 0:
+                result: i64 = fgets(buf, 511, file)
+                if result == 0:
+                    break
+                
+                line_len: i64 = Memory.strlen(buf as str)
+                first_ch: i8 = Memory.read_i8(buf)
+                
+                # Check for [modules] section header
+                if first_ch == 91:  # '['
+                    # Check if it's [modules]
+                    if line_len >= 9:
+                        is_modules: bool = true
+                        modules_str: str = "[modules]"
+                        i: i64 = 0
+                        while i < 9:
+                            c1: i8 = Memory.read_i8(buf + i)
+                            c2: i8 = Memory.read_i8((modules_str as i64) + i)
+                            if c1 != c2:
+                                is_modules = false
+                                break
+                            i = i + 1
+                        
+                        if is_modules:
+                            in_modules = true
+                        else:
+                            in_modules = false
+                    continue
+                
+                # Skip if not in [modules] section
+                if in_modules == false:
+                    continue
+                
+                # Skip comments and empty lines
+                if first_ch == 35:
+                    continue
+                if first_ch == 10:
+                    continue
+                if first_ch == 13:
+                    continue
+                
+                # Find the | separator
+                pos: i64 = 0
+                has_sep: bool = false
+                while pos < line_len:
+                    ch: i8 = Memory.read_i8(buf + pos)
+                    if ch == 124:
+                        has_sep = true
+                        break
+                    pos = pos + 1
+                
+                if has_sep:
+                    # Remove newline at end
+                    end: i64 = line_len - 1
+                    while end >= 0:
+                        ch: i8 = Memory.read_i8(buf + end)
+                        if ch == 10 or ch == 13:
+                            Memory.write_i8(buf + end, 0)
+                        else:
+                            break
+                        end = end - 1
+                    
+                    # Print with prefix
+                    line_str: str = buf as str
+                    print(@"  {line_str}")
+            
+            Memory.free(buf)
+            fclose(file)
+        
+        print("--------------------------------------------------")
+    
+    fun show_help(self):
+        print("")
+        print("DOPM - Dolet Package Manager")
+        print("")
+        print("Usage:")
+        print("  dopm install <pkg>   Install a package")
+        print("  dopm remove <pkg>    Remove a package")
+        print("  dopm list            List installed packages")
+        print("  dopm search          Search packages")
+        print("")
+
+# ============================================================================
+# Main
+# ============================================================================
+pm: DOPM = DOPM{}
+
+# Get command: arg 1 (arg 0 is program name)
+cmd: str = get_arg(1)
+pkg: str = get_arg(2)
+
+if Memory.strlen(cmd) == 0:
+    pm.show_help()
+    pm.search()
+else if str_eq(cmd, "install"):
+    if Memory.strlen(pkg) == 0:
+        print("[ERROR] Usage: dopm install <package>")
+    else:
+        pm.install(pkg)
+else if str_eq(cmd, "remove"):
+    if Memory.strlen(pkg) == 0:
+        print("[ERROR] Usage: dopm remove <package>")
+    else:
+        pm.uninstall(pkg)
+else if str_eq(cmd, "list"):
+    pm.show_list()
+else if str_eq(cmd, "search"):
+    pm.search()
+else if str_eq(cmd, "help"):
+    pm.show_help()
+else:
+    print(@"[ERROR] Unknown command: {cmd}")
+    pm.show_help()
