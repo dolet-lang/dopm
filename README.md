@@ -1,7 +1,7 @@
-# MACOC
+# dopm
 ### Official Package Manager for Dolet
 
-`macoc` هو مدير الحزم الرسمي لمشاريع **Dolet**.
+`dopm` هو مدير الحزم الرسمي لمشاريع **Dolet**.
 مصمم ليكون خفيفًا، سريعًا، ومكتوب بالكامل بلغة **Pure Dolet** بدون أي اعتماد خارجي.
 
 > ⚡ Native. Fast. Minimal.
@@ -25,8 +25,8 @@
 ### 1️⃣ Clone the repository
 
 ```bash
-git clone https://github.com/your-username/macoc.git
-cd macoc
+git clone https://github.com/dolet-lang/dopm.git
+cd dopm
 ```
 
 ---
@@ -36,7 +36,7 @@ cd macoc
 #### باستخدام مترجم Dolet مباشرة
 
 ```bash
-dolet main.dlt -o macoc
+dolet main.dlt -o do.exe
 ```
 
 #### أو باستخدام سكربتات البناء
@@ -53,20 +53,20 @@ dolet main.dlt -o macoc
 
 ---
 
-## ➕ Add macoc to PATH
+## ➕ Add dopm to PATH
 
 ### 🐧 Linux / macOS
 
 أفضل طريقة:
 
 ```bash
-sudo mv macoc /usr/local/bin/
+sudo mv do /usr/local/bin/
 ```
 
 أو أضف مساره يدويًا:
 
 ```bash
-export PATH="$PATH:/path/to/macoc"
+export PATH="$PATH:/path/to/dopm"
 ```
 
 ---
@@ -76,7 +76,7 @@ export PATH="$PATH:/path/to/macoc"
 1. افتح *Edit the system environment variables*
 2. اضغط **Environment Variables**
 3. عدّل متغير **Path**
-4. أضف مسار المجلد الذي يحتوي على `macoc.exe`
+4. أضف مسار المجلد الذي يحتوي على `do.exe`
 5. اضغط OK
 
 ---
@@ -86,19 +86,19 @@ export PATH="$PATH:/path/to/macoc"
 بعد الإعداد يمكنك استخدامه من أي مجلد:
 
 ```bash
-macoc
+do
 ```
 
 تثبيت حزمة:
 
 ```bash
-macoc install <package_name>
+do install <package_name>
 ```
 
 إزالة حزمة:
 
 ```bash
-macoc remove <package_name>
+do remove <package_name>
 ```
 
 ---
@@ -106,7 +106,7 @@ macoc remove <package_name>
 ## 📁 Project Structure
 
 ```
-macoc/
+dopm/
  ├── main.dlt
  ├── linux_build.sh
  ├── windows_build.bat
@@ -117,7 +117,7 @@ macoc/
 
 ## 🧠 Design Philosophy
 
-`macoc` يتبع مبادئ Dolet:
+`dopm` يتبع مبادئ Dolet:
 
 - أداء عالٍ بدون تعقيد
 - لا اعتماديات خارجية
@@ -165,13 +165,24 @@ Dolet هي لغة برمجة عالية الأداء تركز على:
 - نظام أنواع صارم
 - تصميم minimal بدون overhead
 
-`macoc` هو جزء من منظومة أدوات Dolet الرسمية.
+`dopm` هو جزء من منظومة أدوات Dolet الرسمية.
 
 ---
 
-# 🚀 Why macoc?
+# 🚀 Why dopm?
 
 لأن لغة قوية تحتاج مدير حزم بنفس القوة.
 
 
-# NOTE RN THE PROJECT IS WORKS WITH WINDOWS COS THE SOURCE CODE USING THE DIRECTLY WIN API, LATER WE WILL MAKE ANOTHER FFI FILE AND DEFINE FUNCTIONS TO MAKE THEM USE THE WIN API (KERNEL32 FOR WINDOWS) OR THE SYSCALL FOR LINUX AND SAME THING WITH OTHERS TO MAKE IT CROSSPLATFORM.
+## ⚠ Current Platform Support
+
+Currently, `dopm` runs only on **Windows** because it directly uses the Windows API.
+
+Cross-platform support is planned.  
+Future versions will introduce an abstraction layer using:
+
+- Windows API (Kernel32)
+- Linux syscalls
+- Other platform-specific implementations
+
+
